@@ -54,22 +54,19 @@ demo_data$PMA_scan <- demo_data$mri_test_pma_scan_dob
 demo_data$child_sex <- factor(demo_data$child_sex, labels = c("Male", "Female"))
 
 # Fill in the birth income and education data -------------------------
-#add in the full data for parental education
-edu_income_prenatal <- read.csv("~/Box/Tooley 01_18_2023 eLABE Requested Data/Prenatal_Edu_LogIN.csv")
+edu_income_prenatal <- read.csv("~/Box/Tooley 01_18_2023 eLABE Requested Data/Prenatal_Edu_LogIN.csv") #add in the full data for parental education
 edu_income_prenatal$modid <- edu_income_prenatal$MODID
-#join it to demo_data
-demo_data <- left_join(demo_data, edu_income_prenatal, by= "modid")
+demo_data <- left_join(demo_data, edu_income_prenatal, by= "modid") #join it to demo_data
 
-demo_data$income_needs_demo_b_log <- demo_data  %>% dplyr::select(contains("LOG_")) %>% rowMeans(, na.rm=T)
+demo_data$income_needs_demo_b_log <- demo_data %>% dplyr::select(contains("LOG_")) %>% rowMeans(na.rm=T)
 demo_data$income_needs_demo_b_unlogged <- 10^(demo_data$income_needs_demo_b_log)
 
-#birth
+#birth data
 #0 – Less than high school 1 – Completed high school 2 – College graduate 3 – Advanced degree
-#Y1-Y3
+#Y1-Y3 data
 #1, Less than 12th grade | 2, High school degree/GED | 3, Some college/vocational school | 4, College degree (4 years) | 5, Graduate degree
 demo_data$edu_birth <- case_match(demo_data$EDU, 0~1, 1~2, 2~4, 3~5) #recode so the two scales above match
-#fill in demo_edu_birth for only the values that are missing
-demo_data$demo_edu_b_filled_in <- ifelse(is.na(demo_data$demo_edu_b),demo_data$edu_birth,demo_data$demo_edu_b)
+demo_data$demo_edu_b_filled_in <- ifelse(is.na(demo_data$demo_edu_b),demo_data$edu_birth,demo_data$demo_edu_b) #fill in demo_edu_birth for only the values that are missing
 
 median_prenatal_disadvantage <- median(demo_data$disadv_prenatal)
 
@@ -201,7 +198,7 @@ table <- birth_demo %>% tbl_summary(statistic = list(
 table %>% modify_header(label = "**Variable**", stat_0 = '**N = 261**') 
 table %>% show_header_names()
 
-#correlation table of SES variables
+#Supplemental Table 2: correlation table of SES variables
 library(datscience)
 birth_demo$demo_edu_b_num <- as.numeric(birth_demo$demo_edu_b)
 table <- apa_corrTable(birth_demo, rmDiag = F, summarystats = F, method = "spearman",
@@ -366,7 +363,7 @@ output_pconn=paste0("~/Box/projects/in_progress/within_between_network_longitudi
 command = sprintf("-cifti-convert -from-text % s  ~/Box/projects/in_progress/struct_funct_neonates/data/for_viz/MOD1022_V1_a_ALFF_std_parcellated.ptseries.nii % s", output_file, output_pconn) 
 ciftiTools::run_wb_cmd(command, intern = FALSE, ignore.stdout = NULL, ignore.stderr = NULL)
 
-# Plot the age x SES effect on local segregation by system: Fig 3b -------------------------
+# Fig 3b: Plot the age x SES effect on local segregation by system-------------------------
 gam.age.ses.clustco.gordon.fx.TRUE <- read.csv("~/Box/projects/in_progress/within_between_network_longitudinal/data/GAMM_results/n419_avgclustco_age_ses_gamm_statistics_gordon_fx_T_no_neg.csv")
 head(gam.age.ses.clustco.gordon.fx.TRUE)
 gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.pvalue.fdr <- p.adjust(gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.pvalue, method = "fdr")
@@ -388,7 +385,7 @@ g <- ggplot(data = dplyr::filter(gam.age.ses.clustco.gordon.fx.TRUE, network !="
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), text = element_text(size=14)) #fix the offset
 g
 
-# Spin test for age effects on local segregation to S-A axis: Fig 3c --------------
+# Fig 3c: Spin test for age effects on local segregation to S-A axis --------------
 source("~/Box/tools/rotate_parcellation/R/rotate.parcellation.R")
 source("~/Box/tools/rotate_parcellation/R/perm.sphere.p.R")
 library(matrixStats) #otherwise get rowMins error
@@ -659,7 +656,7 @@ output_pconn=paste0("~/Box/projects/in_progress/within_between_network_longitudi
 command = sprintf("-cifti-convert -from-text % s  ~/Box/projects/in_progress/struct_funct_neonates/data/for_viz/MOD1022_V1_a_ALFF_std_parcellated.ptseries.nii % s", output_file, output_pconn) 
 ciftiTools::run_wb_cmd(command, intern = FALSE, ignore.stdout = NULL, ignore.stderr = NULL)
 
-# Plot the age x SES effect on clustering coefficient by system -------------------------
+# Fig 5c: Plot the age x SES effect on clustering coefficient by system -------------------------
 gam.age.ses.clustco.gordon.fx.TRUE <- read.csv("~/Box/projects/in_progress/within_between_network_longitudinal/data/GAMM_results/n419_avgclustco_age_SES_mat_ed_INR_gamm_statistics_gordon_fx_T_no_neg.csv")
 head(gam.age.ses.clustco.gordon.fx.TRUE)
 gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.pvalue.fdr <- p.adjust(gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.pvalue, method = "fdr")
