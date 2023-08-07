@@ -6,234 +6,8 @@ library(dplyr)
 library(lme4)
 library(pbkrtest)
 
-# Functions adapted from Sydnor et al., 2023, https://github.com/PennLINC/spatiotemp_dev_plasticity/blob/main/gam_models/GAM_functions.R
-
-#### FIT GAMM SMOOTH ####
-##Function to fit a GAMM (measure ~ s(smooth_var, k = knots, fx = set_fx) + covariates, with a random intercept for participants with random=list(id_var =~0)) per each region in atlas and save out statistics
-gamm.fit.smooth <- function(measure, atlas, dataset, region, smooth_var, covariates, knots, id_var, random_slope=FALSE, set_fx = FALSE, stats_only = FALSE){
-  
-  #Fit the gam
-  dataname <- sprintf("%s.%s.%s", measure, atlas, dataset) 
-  gam.data <- get(dataname)
-  parcel <- region
-  region <- str_replace(region, "-", ".")
-  modelformula <- as.formula(sprintf("%s ~ s(%s, k = %s, fx = %s) + %s", region, smooth_var, knots, set_fx, covariates))
-  if (random_slope == FALSE){
-    re_values=c(~1)
-    re_names=id_var
-    #gam.model <- gamm(modelformula, method = "REML",random = as.list(setNames(re_values,re_names)), data = gam.data)
-  }
-  if (random_slope == TRUE)
-  {
-    re_values=c(~1, as.formula(paste0("~0 +",smooth_var))) #the random effects have to be formulas
-    re_names=c(id_var, id_var)
-    #reStruct(as.list(setNames(values,names))) #this is how to create a random effects structure, see next line
-  }
-  gam.model <- gamm(modelformula, method = "REML",random = reStruct(as.list(setNames(re_values,re_names))), data = gam.data)
-  gam.results <- summary(gam.model$gam)
-  
-  #GAMM derivatives
-  #Get derivatives of the smooth function using finite differences
-  derv <- derivatives(gam.model, term = sprintf('s(%s)',smooth_var), interval = "simultaneous", unconditional = F) #derivative at 200 indices of smooth_var with a simultaneous CI
-  #Identify derivative significance window(s)
-  derv <- derv %>% #add "sig" column (TRUE/FALSE) to derv
-    mutate(sig = !(0 > lower & 0 < upper)) #derivative is sig if the lower CI is not < 0 while the upper CI is > 0 (i.e., when the CI does not include 0)
-  derv$sig_deriv = derv$derivative*derv$sig #add "sig_deriv derivatives column where non-significant derivatives are set to 0
-  
-  #GAMM statistics
-  #F value for the smooth term and GAM-based significance of the smooth term
-  gam.smooth.F <- gam.results$s.table[3]
-  gam.smooth.pvalue <- gam.results$s.table[4]
-  
-  #Calculate the magnitude and significance of the smooth term effect by comparing full and reduced models
-  ##Compare a full model GAM (with the smooth term) to a nested, reduced model (with covariates only)
-  nullmodel <- as.formula(sprintf("%s ~ %s", region, covariates)) #no smooth term
-  gam.nullmodel <- gamm(nullmodel, method = "REML",random = reStruct(as.list(setNames(re_values,re_names))), data = gam.data)
-  gam.nullmodel.results <- summary(gam.nullmodel$gam)
-  
-  ##Full versus reduced model anova p-value
-  #We cannot use the ANOVA framework to compare GAMMs...because GAMMs are not truly wholly lme4 objects
-  #Could substitute in the parametric bootstrap here if we wanted to, but it would take a while, and unlikely to be different
-  #I uncommented this but it may need to be commented out
-  #anova(gam.nullmodel$lme,gam.model$lme)
-  #anova.smooth.pvalue <- anova.gam(gam.nullmodel$gam,gam.model$gam)$`p-value`[2]
-  
-  ##Full versus reduced model direction-dependent partial R squared
-  ### effect size
-  sse.model <- sum((gam.model$gam$y - gam.model$gam$fitted.values)^2)
-  sse.nullmodel <- sum((gam.nullmodel$gam$y - gam.nullmodel$gam$fitted.values)^2)
-  partialRsq <- (sse.nullmodel - sse.model)/sse.nullmodel
-  
-  ### effect direction
-  #I think this makes sense in the context of a regular continuous effect, but not in the case of an interaction in the next function
-  mean.derivative <- mean(derv$derivative)
-  if(mean.derivative < 0){ #if the average derivative is less than 0, make the effect size estimate negative
-    partialRsq <- partialRsq*-1}
-  
-  #Derivative-based temporal characteristics
-  #Age of developmental change onset
-  if(sum(derv$sig) > 0){ #if derivative is significant at at least 1 age
-    change.onset <- min(derv$data[derv$sig==T])} #find first age in the smooth where derivative is significant
-  if(sum(derv$sig) == 0){ #if gam derivative is never significant
-    change.onset <- NA} #assign NA
-  
-  #Age of maximal developmental change
-  if(sum(derv$sig) > 0){ 
-    derv$abs_sig_deriv = round(abs(derv$sig_deriv),5) #absolute value significant derivatives
-    maxval <- max(derv$abs_sig_deriv) #find the largest derivative
-    window.peak.change <- derv$data[derv$abs_sig_deriv == maxval] #identify the age(s) at which the derivative is greatest in absolute magnitude
-    peak.change <- mean(window.peak.change)} #identify the age of peak developmental change
-  if(sum(derv$sig) == 0){ 
-    peak.change <- NA}  
-  
-  #Age of decrease onset
-  if(sum(derv$sig) > 0){ 
-    decreasing.range <- derv$data[derv$sig_deriv < 0] #identify all ages with a significant negative derivative (i.e., smooth_var indices where y is decreasing)
-    if(length(decreasing.range) > 0)
-      decrease.onset <- min(decreasing.range) #find youngest age with a significant negative derivative
-    if(length(decreasing.range) == 0)
-      decrease.onset <- NA}
-  if(sum(derv$sig) == 0){
-    decrease.onset <- NA}  
-  
-  #Age of increase offset
-  if(sum(derv$sig) > 0){ 
-    increasing.range <- derv$data[derv$sig_deriv > 0] #identify all ages with a significant positive derivative (i.e., smooth_var indices where y is increasing)
-    if(length(increasing.range) > 0)
-      increase.offset <- max(increasing.range) #find oldest age with a significant positive derivative
-    if(length(increasing.range) == 0)
-      increase.offset <- NA}
-  if(sum(derv$sig) == 0){ 
-    increase.offset <- NA}  
-  
-  #Age of maturation
-  if(sum(derv$sig) > 0){ 
-    change.offset <- max(derv$data[derv$sig==T])} #find last age in the smooth where derivative is significant
-  if(sum(derv$sig) == 0){ 
-    change.offset <- NA}  
-  
-  full.results <- cbind(parcel, gam.smooth.F, gam.smooth.pvalue, partialRsq, change.onset, peak.change, decrease.onset, increase.offset, change.offset)
-  stats.results <- cbind(parcel, gam.smooth.F, gam.smooth.pvalue, partialRsq)
-  if(stats_only == TRUE)
-    return(stats.results)
-  if(stats_only == FALSE)
-    return(full.results)
-}
-
-#### FIT GAMM SMOOTH x CONTINUOUS COVARIATE INTERACTION ####
-##Function to fit a GAMM (measure ~ s(smooth_var, k = knots, fx = set_fx) + s(smooth_var, k = knots, fx = set_fx, by = int_var) + covariates)), with a random intercept for participants with random=list(id_var =~0)) per each region in atlas and save out statistics
-gamm.fit.smooth.int <- function(measure, atlas, dataset, region, smooth_var, int_var, id_var, covariates, knots, set_fx = FALSE, stats_only = TRUE, random_slope=FALSE){
-  
-  #Fit the gam
-  dataname <- sprintf("%s.%s.%s", measure, atlas, dataset) 
-  gam.data <- get(dataname)
-  parcel <- region
-  region <- str_replace(region, "-", ".")
-  modelformula <- as.formula(sprintf("%1$s ~ s(%2$s, k = %3$s, fx = %4$s) + s(%2$s, by = %5$s, k = %3$s, fx = %4$s) + %6$s", region, smooth_var, knots, set_fx, int_var, covariates))
-  if (random_slope == FALSE){
-    re_values=c(~1)
-    re_names=id_var
-    #gam.model <- gamm(modelformula, method = "REML",random = as.list(setNames(re_values,re_names)), data = gam.data)
-  }
-  if (random_slope == TRUE)
-  {
-    re_values=c(~1, as.formula(paste0("~0 +",smooth_var))) #the random effects have to be formulas
-    re_names=c(id_var, id_var)
-    #reStruct(as.list(setNames(values,names))) #this is how to create a random effects structure
-  }
-  gam.model <- gamm(modelformula, method = "REML",random = reStruct(as.list(setNames(re_values,re_names))), data = gam.data)
-  gam.results <- summary(gam.model$gam)
-  
-  #GAMM derivatives
-  #Get derivatives of the smooth function using finite differences
-  derv <- derivatives(gam.model, term = sprintf('s(%s)',smooth_var), interval = "simultaneous", unconditional = F) #derivative at 200 indices of smooth_var with a simultaneous CI
-  #Identify derivative significance window(s)
-  derv <- derv %>% #add "sig" column (TRUE/FALSE) to derv
-    mutate(sig = !(0 > lower & 0 < upper)) #derivative is sig if the lower CI is not < 0 while the upper CI is > 0 (i.e., when the CI does not include 0)
-  derv$sig_deriv = derv$derivative*derv$sig #add "sig_deriv derivatives column where non-significant derivatives are set to 0
-  
-  #GAM statistics
-  #F value for the smooth term and GAM-based significance of the smooth x interaction term
-  gam.smooth.F <- gam.results$s.table[2,3]
-  gam.smooth.pvalue <- gam.results$s.table[2,4]
-  
-  #Calculate the magnitude and significance of the smooth term effect by comparing full and reduced models
-  ##Compare a full model GAMM (with the smooth term and the interaction term) to a nested, reduced model (with smooth term only)
-  nullmodel <-   as.formula(sprintf("%s ~ s(%s, k = %s, fx = %s) + %s", region, smooth_var, knots, set_fx, covariates)) #no smooth term
-  gam.nullmodel <- gamm(nullmodel, method = "REML",random = reStruct(as.list(setNames(re_values,re_names))), data = gam.data)
-  gam.nullmodel.results <- summary(gam.nullmodel$gam)
-  
-  ##Full versus reduced model anova p-value
-  #We cannot use the ANOVA framework to compare GAMMs...because GAMMs are not truly wholly lme4 objects
-  #Could substitute in the parametric bootstrap here if we wanted to, but it would take a while, and unlikely to be different
-  #I uncommented this but it may need to be commented out
-  # print(anova(gam.nullmodel$lme,gam.model$lme,test='Chisq'))
-  # anova.smooth.pvalue <- anova.gam(gam.nullmodel$lme,gam.model$lme,test='Chisq')$`Pr(>Chi)`[2]
-  
-  ##Full versus reduced model direction-dependent partial R squared
-  ### effect size
-  sse.model <- sum((gam.model$gam$y - gam.model$gam$fitted.values)^2)
-  sse.nullmodel <- sum((gam.nullmodel$gam$y - gam.nullmodel$gam$fitted.values)^2)
-  partialRsq <- (sse.nullmodel - sse.model)/sse.nullmodel
-  #print(region);print(sse.model);print(sse.nullmodel);print(gam.smooth.pvalue)
-  
-  ### effect direction does not make sense in the context of an interaction, really, at least not for our purposes
-  # mean.derivative <- mean(derv$derivative)
-  # if(mean.derivative < 0){ #if the average derivative is less than 0, make the effect size estimate negative
-  #   partialRsq <- partialRsq*-1}
-  
-  #Derivative-based temporal characteristics
-  #Age of developmental change onset
-  if(sum(derv$sig) > 0){ #if derivative is significant at at least 1 age
-    change.onset <- min(derv$data[derv$sig==T])} #find first age in the smooth where derivative is significant
-  if(sum(derv$sig) == 0){ #if gam derivative is never significant
-    change.onset <- NA} #assign NA
-  
-  #Age of maximal developmental change
-  if(sum(derv$sig) > 0){ 
-    derv$abs_sig_deriv = round(abs(derv$sig_deriv),5) #absolute value significant derivatives
-    maxval <- max(derv$abs_sig_deriv) #find the largest derivative
-    window.peak.change <- derv$data[derv$abs_sig_deriv == maxval] #identify the age(s) at which the derivative is greatest in absolute magnitude
-    peak.change <- mean(window.peak.change)} #identify the age of peak developmental change
-  if(sum(derv$sig) == 0){ 
-    peak.change <- NA}  
-  
-  #Age of decrease onset
-  if(sum(derv$sig) > 0){ 
-    decreasing.range <- derv$data[derv$sig_deriv < 0] #identify all ages with a significant negative derivative (i.e., smooth_var indices where y is decreasing)
-    if(length(decreasing.range) > 0)
-      decrease.onset <- min(decreasing.range) #find youngest age with a significant negative derivative
-    if(length(decreasing.range) == 0)
-      decrease.onset <- NA}
-  if(sum(derv$sig) == 0){
-    decrease.onset <- NA}  
-  
-  #Age of increase offset
-  if(sum(derv$sig) > 0){ 
-    increasing.range <- derv$data[derv$sig_deriv > 0] #identify all ages with a significant positive derivative (i.e., smooth_var indices where y is increasing)
-    if(length(increasing.range) > 0)
-      increase.offset <- max(increasing.range) #find oldest age with a significant positive derivative
-    if(length(increasing.range) == 0)
-      increase.offset <- NA}
-  if(sum(derv$sig) == 0){ 
-    increase.offset <- NA}  
-  
-  #Age of maturation
-  if(sum(derv$sig) > 0){ 
-    change.offset <- max(derv$data[derv$sig==T])} #find last age in the smooth where derivative is significant
-  if(sum(derv$sig) == 0){ 
-    change.offset <- NA}  
-  
-  full.results <- cbind(parcel, gam.smooth.F, gam.smooth.pvalue, partialRsq, change.onset, peak.change, decrease.onset, increase.offset, change.offset)
-  stats.results <- cbind(parcel, gam.smooth.F, gam.smooth.pvalue, partialRsq)
-  if(stats_only == TRUE)
-    return(stats.results)
-  if(stats_only == FALSE)
-    return(full.results)
-}
-
-
-#### RESIDUAL PLOT FOR GAMM INTERACTION WITH SPAGHETTI LINES ####
+#### RESIDUAL PLOT FOR GAMM INTERACTION, WITH SPAGHETTI LINES ####
+# Reworked from code from Dr. Bart Larsen
 resid_plot_int <- function(modobj,term,int.term=NULL,add.intercept=FALSE, group.var="modid", low_color="#FAA820", high_color="#4D8AC8"){
   library(gratia)
   font_size=16
@@ -350,7 +124,7 @@ resid_plot_int <- function(modobj,term,int.term=NULL,add.intercept=FALSE, group.
     xlab(term)+ylab("partial.residuals")
 }
 
-#### RESIDUAL PLOT FOR GAMM ####
+#### RESIDUAL PLOT FOR GAMMS ####
 library(scales)
 font_size=14
 theme_set(theme_classic(base_family = "sans",base_size = font_size))
@@ -519,8 +293,8 @@ resid_plot <- function(modobj,term,group.var,int.term=NULL,add.intercept=FALSE, 
   }
 }
 
-
-#### DR. BART LARSEN PLOTTING METHOD FOR DERIVATIVES OF GAMS ####
+#### PLOTTING METHOD FOR DERIVATIVES OF GAMS ####
+## Used with permission from Dr. Bart Larsen
 library(broom)
 library(kableExtra)
 library(RColorBrewer)
@@ -891,4 +665,230 @@ pboot <- function(modelobj){
     pb$bestmod <- f2
   }
   return(pb)
+}
+
+#### FIT GAMM SMOOTH ####
+##Function to fit a GAMM (measure ~ s(smooth_var, k = knots, fx = set_fx) + covariates, with a random intercept for participants with random=list(id_var =~0)) per each region in atlas and save out statistics
+## Function adapted from Sydnor et al., 2023, https://github.com/PennLINC/spatiotemp_dev_plasticity/blob/main/gam_models/GAM_functions.R
+gamm.fit.smooth <- function(measure, atlas, dataset, region, smooth_var, covariates, knots, id_var, random_slope=FALSE, set_fx = FALSE, stats_only = FALSE){
+  
+  #Fit the gam
+  dataname <- sprintf("%s.%s.%s", measure, atlas, dataset) 
+  gam.data <- get(dataname)
+  parcel <- region
+  region <- str_replace(region, "-", ".")
+  modelformula <- as.formula(sprintf("%s ~ s(%s, k = %s, fx = %s) + %s", region, smooth_var, knots, set_fx, covariates))
+  if (random_slope == FALSE){
+    re_values=c(~1)
+    re_names=id_var
+    #gam.model <- gamm(modelformula, method = "REML",random = as.list(setNames(re_values,re_names)), data = gam.data)
+  }
+  if (random_slope == TRUE)
+  {
+    re_values=c(~1, as.formula(paste0("~0 +",smooth_var))) #the random effects have to be formulas
+    re_names=c(id_var, id_var)
+    #reStruct(as.list(setNames(values,names))) #this is how to create a random effects structure, see next line
+  }
+  gam.model <- gamm(modelformula, method = "REML",random = reStruct(as.list(setNames(re_values,re_names))), data = gam.data)
+  gam.results <- summary(gam.model$gam)
+  
+  #GAMM derivatives
+  #Get derivatives of the smooth function using finite differences
+  derv <- derivatives(gam.model, term = sprintf('s(%s)',smooth_var), interval = "simultaneous", unconditional = F) #derivative at 200 indices of smooth_var with a simultaneous CI
+  #Identify derivative significance window(s)
+  derv <- derv %>% #add "sig" column (TRUE/FALSE) to derv
+    mutate(sig = !(0 > lower & 0 < upper)) #derivative is sig if the lower CI is not < 0 while the upper CI is > 0 (i.e., when the CI does not include 0)
+  derv$sig_deriv = derv$derivative*derv$sig #add "sig_deriv derivatives column where non-significant derivatives are set to 0
+  
+  #GAMM statistics
+  #F value for the smooth term and GAM-based significance of the smooth term
+  gam.smooth.F <- gam.results$s.table[3]
+  gam.smooth.pvalue <- gam.results$s.table[4]
+  
+  #Calculate the magnitude and significance of the smooth term effect by comparing full and reduced models
+  ##Compare a full model GAM (with the smooth term) to a nested, reduced model (with covariates only)
+  nullmodel <- as.formula(sprintf("%s ~ %s", region, covariates)) #no smooth term
+  gam.nullmodel <- gamm(nullmodel, method = "REML",random = reStruct(as.list(setNames(re_values,re_names))), data = gam.data)
+  gam.nullmodel.results <- summary(gam.nullmodel$gam)
+  
+  ##Full versus reduced model anova p-value
+  #We cannot use the ANOVA framework to compare GAMMs...because GAMMs are not truly wholly lme4 objects
+  #Could substitute in the parametric bootstrap here if we wanted to, but it would take a while, and unlikely to be different
+  #I uncommented this but it may need to be commented out
+  #anova(gam.nullmodel$lme,gam.model$lme)
+  #anova.smooth.pvalue <- anova.gam(gam.nullmodel$gam,gam.model$gam)$`p-value`[2]
+  
+  ##Full versus reduced model direction-dependent partial R squared
+  ### effect size
+  sse.model <- sum((gam.model$gam$y - gam.model$gam$fitted.values)^2)
+  sse.nullmodel <- sum((gam.nullmodel$gam$y - gam.nullmodel$gam$fitted.values)^2)
+  partialRsq <- (sse.nullmodel - sse.model)/sse.nullmodel
+  
+  ### effect direction
+  #I think this makes sense in the context of a regular continuous effect, but not in the case of an interaction in the next function
+  mean.derivative <- mean(derv$derivative)
+  if(mean.derivative < 0){ #if the average derivative is less than 0, make the effect size estimate negative
+    partialRsq <- partialRsq*-1}
+  
+  #Derivative-based temporal characteristics
+  #Age of developmental change onset
+  if(sum(derv$sig) > 0){ #if derivative is significant at at least 1 age
+    change.onset <- min(derv$data[derv$sig==T])} #find first age in the smooth where derivative is significant
+  if(sum(derv$sig) == 0){ #if gam derivative is never significant
+    change.onset <- NA} #assign NA
+  
+  #Age of maximal developmental change
+  if(sum(derv$sig) > 0){ 
+    derv$abs_sig_deriv = round(abs(derv$sig_deriv),5) #absolute value significant derivatives
+    maxval <- max(derv$abs_sig_deriv) #find the largest derivative
+    window.peak.change <- derv$data[derv$abs_sig_deriv == maxval] #identify the age(s) at which the derivative is greatest in absolute magnitude
+    peak.change <- mean(window.peak.change)} #identify the age of peak developmental change
+  if(sum(derv$sig) == 0){ 
+    peak.change <- NA}  
+  
+  #Age of decrease onset
+  if(sum(derv$sig) > 0){ 
+    decreasing.range <- derv$data[derv$sig_deriv < 0] #identify all ages with a significant negative derivative (i.e., smooth_var indices where y is decreasing)
+    if(length(decreasing.range) > 0)
+      decrease.onset <- min(decreasing.range) #find youngest age with a significant negative derivative
+    if(length(decreasing.range) == 0)
+      decrease.onset <- NA}
+  if(sum(derv$sig) == 0){
+    decrease.onset <- NA}  
+  
+  #Age of increase offset
+  if(sum(derv$sig) > 0){ 
+    increasing.range <- derv$data[derv$sig_deriv > 0] #identify all ages with a significant positive derivative (i.e., smooth_var indices where y is increasing)
+    if(length(increasing.range) > 0)
+      increase.offset <- max(increasing.range) #find oldest age with a significant positive derivative
+    if(length(increasing.range) == 0)
+      increase.offset <- NA}
+  if(sum(derv$sig) == 0){ 
+    increase.offset <- NA}  
+  
+  #Age of maturation
+  if(sum(derv$sig) > 0){ 
+    change.offset <- max(derv$data[derv$sig==T])} #find last age in the smooth where derivative is significant
+  if(sum(derv$sig) == 0){ 
+    change.offset <- NA}  
+  
+  full.results <- cbind(parcel, gam.smooth.F, gam.smooth.pvalue, partialRsq, change.onset, peak.change, decrease.onset, increase.offset, change.offset)
+  stats.results <- cbind(parcel, gam.smooth.F, gam.smooth.pvalue, partialRsq)
+  if(stats_only == TRUE)
+    return(stats.results)
+  if(stats_only == FALSE)
+    return(full.results)
+}
+
+#### FIT GAMM SMOOTH x CONTINUOUS COVARIATE INTERACTION ####
+##Function to fit a GAMM (measure ~ s(smooth_var, k = knots, fx = set_fx) + s(smooth_var, k = knots, fx = set_fx, by = int_var) + covariates)), with a random intercept for participants with random=list(id_var =~0)) per each region in atlas and save out statistics
+## Function adapted from Sydnor et al., 2023, https://github.com/PennLINC/spatiotemp_dev_plasticity/blob/main/gam_models/GAM_functions.R
+gamm.fit.smooth.int <- function(measure, atlas, dataset, region, smooth_var, int_var, id_var, covariates, knots, set_fx = FALSE, stats_only = TRUE, random_slope=FALSE){
+  
+  #Fit the gam
+  dataname <- sprintf("%s.%s.%s", measure, atlas, dataset) 
+  gam.data <- get(dataname)
+  parcel <- region
+  region <- str_replace(region, "-", ".")
+  modelformula <- as.formula(sprintf("%1$s ~ s(%2$s, k = %3$s, fx = %4$s) + s(%2$s, by = %5$s, k = %3$s, fx = %4$s) + %6$s", region, smooth_var, knots, set_fx, int_var, covariates))
+  if (random_slope == FALSE){
+    re_values=c(~1)
+    re_names=id_var
+    #gam.model <- gamm(modelformula, method = "REML",random = as.list(setNames(re_values,re_names)), data = gam.data)
+  }
+  if (random_slope == TRUE)
+  {
+    re_values=c(~1, as.formula(paste0("~0 +",smooth_var))) #the random effects have to be formulas
+    re_names=c(id_var, id_var)
+    #reStruct(as.list(setNames(values,names))) #this is how to create a random effects structure
+  }
+  gam.model <- gamm(modelformula, method = "REML",random = reStruct(as.list(setNames(re_values,re_names))), data = gam.data)
+  gam.results <- summary(gam.model$gam)
+  
+  #GAMM derivatives
+  #Get derivatives of the smooth function using finite differences
+  derv <- derivatives(gam.model, term = sprintf('s(%s)',smooth_var), interval = "simultaneous", unconditional = F) #derivative at 200 indices of smooth_var with a simultaneous CI
+  #Identify derivative significance window(s)
+  derv <- derv %>% #add "sig" column (TRUE/FALSE) to derv
+    mutate(sig = !(0 > lower & 0 < upper)) #derivative is sig if the lower CI is not < 0 while the upper CI is > 0 (i.e., when the CI does not include 0)
+  derv$sig_deriv = derv$derivative*derv$sig #add "sig_deriv derivatives column where non-significant derivatives are set to 0
+  
+  #GAM statistics
+  #F value for the smooth term and GAM-based significance of the smooth x interaction term
+  gam.smooth.F <- gam.results$s.table[2,3]
+  gam.smooth.pvalue <- gam.results$s.table[2,4]
+  
+  #Calculate the magnitude and significance of the smooth term effect by comparing full and reduced models
+  ##Compare a full model GAMM (with the smooth term and the interaction term) to a nested, reduced model (with smooth term only)
+  nullmodel <-   as.formula(sprintf("%s ~ s(%s, k = %s, fx = %s) + %s", region, smooth_var, knots, set_fx, covariates)) #no smooth term
+  gam.nullmodel <- gamm(nullmodel, method = "REML",random = reStruct(as.list(setNames(re_values,re_names))), data = gam.data)
+  gam.nullmodel.results <- summary(gam.nullmodel$gam)
+  
+  ##Full versus reduced model anova p-value
+  #We cannot use the ANOVA framework to compare GAMMs...because GAMMs are not truly wholly lme4 objects
+  #Could substitute in the parametric bootstrap here if we wanted to, but it would take a while, and unlikely to be different
+  #I uncommented this but it may need to be commented out
+  # print(anova(gam.nullmodel$lme,gam.model$lme,test='Chisq'))
+  # anova.smooth.pvalue <- anova.gam(gam.nullmodel$lme,gam.model$lme,test='Chisq')$`Pr(>Chi)`[2]
+  
+  ##Full versus reduced model direction-dependent partial R squared
+  ### effect size
+  sse.model <- sum((gam.model$gam$y - gam.model$gam$fitted.values)^2)
+  sse.nullmodel <- sum((gam.nullmodel$gam$y - gam.nullmodel$gam$fitted.values)^2)
+  partialRsq <- (sse.nullmodel - sse.model)/sse.nullmodel
+  #print(region);print(sse.model);print(sse.nullmodel);print(gam.smooth.pvalue)
+  
+  ### effect direction does not make sense in the context of an interaction, really, at least not for our purposes
+  # mean.derivative <- mean(derv$derivative)
+  # if(mean.derivative < 0){ #if the average derivative is less than 0, make the effect size estimate negative
+  #   partialRsq <- partialRsq*-1}
+  
+  #Derivative-based temporal characteristics
+  #Age of developmental change onset
+  if(sum(derv$sig) > 0){ #if derivative is significant at at least 1 age
+    change.onset <- min(derv$data[derv$sig==T])} #find first age in the smooth where derivative is significant
+  if(sum(derv$sig) == 0){ #if gam derivative is never significant
+    change.onset <- NA} #assign NA
+  
+  #Age of maximal developmental change
+  if(sum(derv$sig) > 0){ 
+    derv$abs_sig_deriv = round(abs(derv$sig_deriv),5) #absolute value significant derivatives
+    maxval <- max(derv$abs_sig_deriv) #find the largest derivative
+    window.peak.change <- derv$data[derv$abs_sig_deriv == maxval] #identify the age(s) at which the derivative is greatest in absolute magnitude
+    peak.change <- mean(window.peak.change)} #identify the age of peak developmental change
+  if(sum(derv$sig) == 0){ 
+    peak.change <- NA}  
+  
+  #Age of decrease onset
+  if(sum(derv$sig) > 0){ 
+    decreasing.range <- derv$data[derv$sig_deriv < 0] #identify all ages with a significant negative derivative (i.e., smooth_var indices where y is decreasing)
+    if(length(decreasing.range) > 0)
+      decrease.onset <- min(decreasing.range) #find youngest age with a significant negative derivative
+    if(length(decreasing.range) == 0)
+      decrease.onset <- NA}
+  if(sum(derv$sig) == 0){
+    decrease.onset <- NA}  
+  
+  #Age of increase offset
+  if(sum(derv$sig) > 0){ 
+    increasing.range <- derv$data[derv$sig_deriv > 0] #identify all ages with a significant positive derivative (i.e., smooth_var indices where y is increasing)
+    if(length(increasing.range) > 0)
+      increase.offset <- max(increasing.range) #find oldest age with a significant positive derivative
+    if(length(increasing.range) == 0)
+      increase.offset <- NA}
+  if(sum(derv$sig) == 0){ 
+    increase.offset <- NA}  
+  
+  #Age of maturation
+  if(sum(derv$sig) > 0){ 
+    change.offset <- max(derv$data[derv$sig==T])} #find last age in the smooth where derivative is significant
+  if(sum(derv$sig) == 0){ 
+    change.offset <- NA}  
+  
+  full.results <- cbind(parcel, gam.smooth.F, gam.smooth.pvalue, partialRsq, change.onset, peak.change, decrease.onset, increase.offset, change.offset)
+  stats.results <- cbind(parcel, gam.smooth.F, gam.smooth.pvalue, partialRsq)
+  if(stats_only == TRUE)
+    return(stats.results)
+  if(stats_only == FALSE)
+    return(full.results)
 }
