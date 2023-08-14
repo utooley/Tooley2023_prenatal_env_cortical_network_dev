@@ -302,7 +302,7 @@ font_size <- 12
 #theme_set(theme_classic(base_family = "sans",base_size = font_size))
 line_size <- 1.5
 point_size <- 2
-visualize_model <- function(modobj,smooth_var, int_var ,group_var, plabels = NULL,check_diagnostics = F,derivative_plot = F, resid_spaghetti=T){
+visualize_model <- function(modobj,smooth_var, int_var = NULL ,group_var, plabels = NULL,check_diagnostics = F,derivative_plot = F, resid_spaghetti=T){
   this_font_size = font_size*1.25
   theme_set(theme_classic(base_family = "sans",base_size = font_size))
   if (any(class(modobj)=="gam")) {
