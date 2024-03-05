@@ -1,6 +1,6 @@
 # Tooley2023_prenatal_env_cortical_network_dev
 
-_Author_: Ursula Tooley, 2023-2024
+**Author**: Ursula Tooley, 2023-2024
 
 This repository contains code for the analyses described in our paper:
 
