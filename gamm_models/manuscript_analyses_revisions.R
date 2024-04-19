@@ -197,9 +197,9 @@ amt_of_data %>% tbl_summary(statistic = list(
 #filter original birth demo data by those in the network analyses
 birth_data <- left_join(y0_network_data, demo_data, by="modid")
 birth_data$PMA_scan <- as.numeric(birth_data$PMA_scan)
-birth_data$demo_edu_b <- factor(birth_data$demo_edu_b, labels = c("Less than 12th grade", "High school degree/GED",
+birth_data$demo_edu_b_filled_in <- factor(birth_data$demo_edu_b_filled_in, labels = c("Less than 12th grade", "High school degree/GED",
   "Some college/vocational school","College degree (4 years)" ,"Graduate degree"))
-birth_demo <-  birth_data %>% select(PMA_scan, child_race_word, child_hispanic, child_sex,GAWEEKS, child_birthweight, ADI, income_needs_demo_b, demo_edu_b,insurance_status_birth,HEI_birth, disadv_prenatal)
+birth_demo <-  birth_data %>% select(PMA_scan, child_race_word, child_hispanic, child_sex,GAWEEKS, child_birthweight, ADI, income_needs_demo_b, demo_edu_b_filled_in,insurance_status_birth,HEI_birth, disadv_prenatal)
 birth_demo$child_sex<- factor(birth_demo$child_sex, labels = c("Male", "Female"))
 table <- birth_demo %>% tbl_summary(statistic = list(
     all_continuous() ~ "{mean} ({min} - {max})",
@@ -215,7 +215,7 @@ table <- birth_demo %>% tbl_summary(statistic = list(
       child_birthweight ~ "Birthweight (g)",
       ADI ~ "Area Deprivation Index",
       income_needs_demo_b ~ "Income to Needs Ratio",
-      demo_edu_b ~ "Highest level of parent education completed",
+      demo_edu_b_filled_in ~ "Highest level of parent education completed",
       disadv_prenatal ~ "Socioeconomic disadvantage factor score",
       insurance_status_birth ~ "Insurance status (private)",
       HEI_birth ~ "Healthy Eating Index"),
@@ -224,8 +224,9 @@ table %>% modify_header(label = "**Variable**", stat_0 = '**N = 261**')
 table %>% show_header_names()
 theme_gtsummary_compact()
 table %>%
+  modify_header(label = "**Variable**", stat_0 = '**N = 261**') %>% 
   as_gt() %>%
-  gt::gtsave(filename = "~/Box/projects/in_progress/within_between_network_longitudinal/Demographic_table.docx")
+  gt::gtsave(filename = "~/Box/projects/in_progress/within_between_network_longitudinal/docs/writing/agexses/figures/Demographic_table.docx")
 
 #Supplemental Table 2: correlation table of SES variables
 library(datscience)
