@@ -19,4 +19,4 @@ Preprocessing was performed with [4dfp](https://4dfp.readthedocs.io/en/latest/),
 
 # Organization
 
-The *gamm_models* folder contains a script with functions necessary for running the code called *gamm_functions.R*. This script is sourced in the main analysis file, titled `manuscript_analyses.R` and the supplementary analysis file, titled `sensitivity_analyses.R`, prior to continuing analyses.
+The *gamm_models* folder contains a script with functions necessary for running the code called `gamm_functions.R`. This script is sourced in the main analysis file, titled `manuscript_analyses.R` and the supplementary analysis file, titled `sensitivity_analyses.R`, prior to continuing analyses.
