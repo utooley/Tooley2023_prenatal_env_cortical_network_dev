@@ -1,5 +1,4 @@
 # Setup -------------------------------------------------------------------
-library(raincloudplots)
 library(tidyverse)
 library(stats)
 library(parallel)
@@ -192,6 +191,12 @@ amt_of_data <-  network_demo_data_long %>% filter(!is.na(child_sex)) %>% select(
 amt_of_data %>% tbl_summary(statistic = list(
   all_continuous() ~ "{mean} ({min} - {max})",
   all_categorical() ~ "{n} / {N} ({p}%)"))
+
+# Save out test dataset for code repo and load it ------------------------------------------
+network_demo_data_example <- network_demo_data_long %>% select(-c("MODID.x", "MODID.y", "child_birthweight", "GAWEEKS")) %>% arrange(modid) %>%  slice_head(n = 4)
+network_demo_data_example$modid <- c("1", "1","1", "2")
+write.csv(network_demo_data_example, file = "~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/data_demo/example_data_network_demo_data_long.csv")
+network_demo_data_long <- read.csv("~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/data_demo/example_data_network_demo_data_long.csv")
 
 # Make Supplemental Table 1: Demographics  ----------------
 #filter original birth demo data by those in the network analyses
@@ -590,8 +595,12 @@ visreg(lm_bayley_rlang_clustco, "avgclustco_both")
 
 # Figure 5a: Age x SES with composite SES (maternal ed + INR) -----------------------------
 #make SES composite from the demo variables in SEM
-network_demo_data_long$ses_composite_b_sem <- network_demo_data_long %>% select(c("demo_edu_b_filled_in","income_needs_demo_b_unlogged")) %>% rowMeans(na.rm=T)
+network_demo_data_long$ses_composite_b_sem <- network_demo_data_long %>% select(c("demo_edu_b_filled_in","income_needs_demo_b_unlogged")) %>% scale() %>% rowMeans(na.rm=T)
 describe(network_demo_data_long$ses_composite_b_sem)
+network_demo_data_long$ses_composite_b_sem2 <- network_demo_data_long %>% select(c("demo_edu_b_filled_in","income_needs_demo_b_unlogged")) %>% rowMeans(na.rm=T)
+describe(network_demo_data_long$ses_composite_b_sem2)
+
+cor.test(network_demo_data_long$ses_composite_b_sem2, network_demo_data_long$ses_composite_b_sem);scatter.smooth(network_demo_data_long$ses_composite_b_sem2, network_demo_data_long$ses_composite_b_sem)
 
 ## System segregation ##
 gam_age_ses_segreg_by <- gamm(system_segreg ~ child_sex + s(child_age_mri, k=4)+ s(child_age_mri,by=ses_composite_b_sem, k=4) + avg_FD_of_retained_frames + retained_frames + avgweight , random = list(modid =~ 1), data=network_demo_data_long, method = "REML")
