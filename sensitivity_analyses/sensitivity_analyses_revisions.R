@@ -62,6 +62,8 @@ demo_data <- left_join(demo_data, edu_income_prenatal, by= "modid")
 
 demo_data$income_needs_demo_b_log <- demo_data  %>% dplyr::select(contains("LOG_")) %>% rowMeans(na.rm=T)
 demo_data$income_needs_demo_b_unlogged <- 10^(demo_data$income_needs_demo_b_log)
+demo_data$LOG_IN1_unlogged <- 10^(demo_data$LOG_IN1);demo_data$LOG_IN2_unlogged <- 10^(demo_data$LOG_IN2);demo_data$LOG_IN3_unlogged <- 10^(demo_data$LOG_IN3);
+demo_data$income_needs_demo_b_unlogged2 <- demo_data %>% dplyr::select(matches("LOG_IN[1-9]_unlogged")) %>% rowMeans(na.rm = T)
 
 #birth
 #0 – Less than high school 1 – Completed high school 2 – College graduate 3 – Advanced degree

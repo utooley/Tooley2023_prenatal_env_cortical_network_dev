@@ -53,6 +53,28 @@ demo_data$PMA_scan <- demo_data$mri_test_pma_scan_dob
 #make sex a factor
 demo_data$child_sex <- factor(demo_data$child_sex, labels = c("Male", "Female"))
 
+# Load race data ----------------------------------------------------------
+#1, White | 2, Black or African American | 3, American Indian or Alaska Native | 4, Asian Indian | 5, Chinese | 6, Filipino | 7, Japanese | 8, Korean | 9, Vietnamese | 10, Other Asian | 11, Native Hawaiian |
+#12, Guamanian or Chamorro | 13, Samoan | 14, Other Pacific Islander | 15, Other
+race_data <- read.csv("~/Box/Tooley 01_18_2023 eLABE Requested Data/Tooley_02_14_2024_race_hispanic.csv")
+race_data$child_race <- ifelse(grepl( ",",race_data$child_race), "Multiracial", race_data$child_race)
+
+race_data %>% 
+  mutate(
+    #Replace with words for race
+    child_race_word=case_match(child_race,
+                         "1" ~ "White",
+                         "2" ~ "Black",
+                         "4" ~ "Asian Indian",
+                         "5" ~ "Chinese",
+                         "8" ~ "Korean",
+                         "14"~ "Other Pacific Islander",
+                         "15" ~ "Other",
+                         .default=child_race)) %>% 
+  pull(child_race_word)
+                         
+race_data$child_hispanic <- factor(race_data$child_hispanic, labels=c("Not Hispanic or Latino","Hispanic or Latino", "Unspecified"))
+
 # Fill in the birth income and education data -------------------------
 edu_income_prenatal <- read.csv("~/Box/Tooley 01_18_2023 eLABE Requested Data/Prenatal_Edu_LogIN.csv") #add in the full data for parental education
 edu_income_prenatal$modid <- edu_income_prenatal$MODID
@@ -116,9 +138,9 @@ demo_data <- left_join(demo_data, age_y3_mri, by = "modid")
 
 # Reshape data to long format --------------------------------------------
 colnames(demo_data)
-demo <- demo_data %>% dplyr::select(c("modid","child_birthweight","child_sex", "PMA_scan"),contains("age"), contains("disadv"),contains("income_needs_demo"), contains("demo_edu")) 
+demo <- demo_data %>% dplyr::select(c("modid","child_birthweight","child_sex", "PMA_scan"),contains("age"), contains("disadv"),contains("income_needs_demo"), contains("demo_edu"), contains("child_birthweight"), contains("GAWEEKS")) 
 demo$child_age_y0_mri <- (demo$PMA_scan-38)/54 #change PMA to age in years at scan for later plotting
-demo_long <- reshape(demo, direction="long", varying =list(c("child_age_y0_mri","child_age_y2_mri_fun","child_age_y3_mri_fun")), v.names = c("child_age_mri"), times=c("y0","y2","y3"), idvar = "modid", timevar = "timepoint") %>% select(.,modid, timepoint,child_age_mri,child_sex,disadv_prenatal, disadv_y1,disadv_y2,disadv_y3, income_needs_demo_b, income_needs_demo_b_unlogged, income_needs_demo_b_log, demo_edu_b,demo_edu_b_filled_in)
+demo_long <- reshape(demo, direction="long", varying =list(c("child_age_y0_mri","child_age_y2_mri_fun","child_age_y3_mri_fun")), v.names = c("child_age_mri"), times=c("y0","y2","y3"), idvar = "modid", timevar = "timepoint") %>% select(.,modid, timepoint,child_age_mri,child_sex,disadv_prenatal, disadv_y1,disadv_y2,disadv_y3, income_needs_demo_b, income_needs_demo_b_unlogged, income_needs_demo_b_log, demo_edu_b,demo_edu_b_filled_in, child_birthweight, GAWEEKS)
 
 #merge network data in with demo data
 network_demo_data_long <- left_join(all_network_data, demo_long, by=c("modid", "timepoint"))
@@ -206,6 +228,35 @@ table <- apa_corrTable(birth_demo, rmDiag = F, summarystats = F, method = "spear
 table
 table %>% save_flextable(., "~/Downloads/table.docx")
 
+#look at those who came in at all at a time point versus those who didn't
+modids_missing_at_year2 <- filter(demo_data_all, is.na(child_age_y2_assessment)); #who doesn't have age assessed at y2
+modids_missing_at_year2 <- left_join(modids_missing_at_year2, SEM_birth_indicators, by="modid");modids_missing_at_year2 <- left_join(modids_missing_at_year2, SEM_psychosocial_stress_y0, by="modid"); 
+modids_missing_at_year2 <- left_join(modids_missing_at_year2, ADI_all_timepoints, by="modid")
+y2_data <- filter(demo_data_all, !is.na(child_age_y2_assessment)); y2_data <- left_join(y2_data, SEM_birth_indicators, by="modid");y2_data <- left_join(y2_data, SEM_psychosocial_stress_y0, by="modid"); 
+y2_data <- left_join(y2_data, ADI_all_timepoints, by="modid");#%>%filter(.,combined_exclusion_initial_analyses ==0 & irb_exclusion == 0)
+modids_missing_at_year3 <- filter(demo_data_all, is.na(child_age_y3_assessment)); #who doesn't have age assessed at y2
+modids_missing_at_year3 <- left_join(modids_missing_at_year3, SEM_birth_indicators, by="modid");modids_missing_at_year3 <- left_join(modids_missing_at_year3, SEM_psychosocial_stress_y0, by="modid"); 
+modids_missing_at_year3 <- left_join(modids_missing_at_year3, ADI_all_timepoints, by="modid")
+y3_data <- filter(demo_data_all, !is.na(child_age_y3_assessment));y3_data <- left_join(y3_data, SEM_birth_indicators, by="modid");y3_data <- left_join(y3_data, SEM_psychosocial_stress_y0, by="modid"); 
+y3_data <- left_join(y3_data, ADI_all_timepoints, by="modid")#%>%filter(.,combined_exclusion_initial_analyses ==0 & irb_exclusion == 0)
+
+t.test(y2_data$disadv_prenatal, modids_missing_at_year2$disadv_prenatal)
+t.test(y3_data$disadv_prenatal, modids_missing_at_year3$disadv_prenatal)
+t.test(y2_data$neighborhood_natlcentile_b.x, modids_missing_at_year2$ADI)
+t.test(y3_data$neighborhood_natlcentile_b.x, modids_missing_at_year3$ADI)
+chisq.test(cbind(table(y2_data$child_sex), table(modids_missing_at_year2$child_sex)))
+chisq.test(cbind(table(y3_data$child_sex), table(modids_missing_at_year3$child_sex)))
+t.test(y2_data$GAWEEKS, modids_missing_at_year2$GAWEEKS)
+t.test(y3_data$GAWEEKS, modids_missing_at_year3$GAWEEKS)
+t.test(y2_data$child_birthweight, modids_missing_at_year2$child_birthweight)
+t.test(y3_data$child_birthweight, modids_missing_at_year3$child_birthweight)
+t.test(y2_data$psych_prenatal, modids_missing_at_year2$psych_prenatal)
+t.test(y3_data$psych_prenatal, modids_missing_at_year3$psych_prenatal)
+t.test(y2_data$income_needs_demo_b, modids_missing_at_year2$income_needs_demo_b)
+t.test(y2_data$income_needs_demo_y2, modids_missing_at_year2$income_needs_demo_y2)
+t.test(y3_data$income_needs_demo_b, modids_missing_at_year3$income_needs_demo_b)
+t.test(y3_data$income_needs_demo_y3, modids_missing_at_year3$income_needs_demo_y3)
+
 # Figure 1: GAMMs for age -------------------------------------------------------------
 source("~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/gamm_models/gamm_functions.R")
 #system segregation
@@ -282,10 +333,11 @@ p.adjust(c(summary(gam_age_ses_segreg_by$gam)$s.table[2,4],summary(gam_age_ses_m
 
 # Prenatal SES moderates trajectories of cortical network segregation -------------------------------
 #Correlations between segregation measures
-anova(lmer(avgclustco_both ~ modul +(1|modid), data=network_demo_data_long))
-cor.test(network_demo_data_long$avgclustco_both, network_demo_data_long$modul)
-cor.test(network_demo_data_long$avgclustco_both, network_demo_data_long$system_segreg)
-cor.test(network_demo_data_long$modul, network_demo_data_long$system_segreg)
+anova(lmer(avgclustco_both ~ modul + (1|modid), data=network_demo_data_long))
+net_data <- filter(network_demo_data_long, !is.na(child_sex)) 
+cor.test(net_data$avgclustco_both, net_data$modul)
+cor.test(net_data$avgclustco_both, net_data$system_segreg)
+cor.test(net_data$modul, net_data$system_segreg)
 
 #which measure of segregation accounts for the age x SES effect
 ## Check local segregation inclusion in other models ## 
@@ -297,6 +349,7 @@ pb <- pboot(gam_age_ses_segreg_by);pb
 #modul
 gam_age_ses_modul_by <- gamm(modul ~ child_sex + s(child_age_mri, k=4)+ s(child_age_mri,by=disadv_prenatal, k=4) + avg_FD_of_retained_frames +retained_frames + avgweight +avgclustco_both, random = list(modid =~ 1), data=network_demo_data_long, method = "REML")
 summary(gam_age_ses_modul_by$lme);summary(gam_age_ses_modul_by$gam)
+confint(gam_age_ses_modul_by$lme)
 gam_age_ses_modul_by <- gamm(modul ~ child_sex + s(child_age_mri, k=4) + avg_FD_of_retained_frames + retained_frames + avgweight+ +avgclustco_both + s(child_age_mri,by=disadv_prenatal, k=4) , random = list(modid =~ 1), data=network_demo_data_long, method = "REML")
 pb <- pboot(gam_age_ses_modul_by);pb
 
@@ -369,6 +422,10 @@ head(gam.age.ses.clustco.gordon.fx.TRUE)
 gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.pvalue.fdr <- p.adjust(gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.pvalue, method = "fdr")
 gam.age.ses.clustco.gordon.fx.TRUE$network <- gordon_networks
 kruskal.test(GAM.age.ses.Fvalue~network, data = gam.age.ses.clustco.gordon.fx.TRUE)
+library(rstatix)
+kruskal_effsize(data = gam.age.ses.clustco.gordon.fx.TRUE,
+                GAM.age.ses.Fvalue~network,
+                ci = T)
 
 #make a boxplot
 g <- ggplot(data = dplyr::filter(gam.age.ses.clustco.gordon.fx.TRUE, network !="None"), aes(x = reorder(network, -GAM.age.ses.Fvalue, median), y= GAM.age.ses.Fvalue, fill=network)) +
@@ -394,6 +451,8 @@ load("~/Box/projects/in_progress/struct_funct_neonates/data/rotations_gordon333_
 sa_axis_gordon <- read.csv("~/Box/tools/parcellations/Gordon_fs_LR/SensorimotorAssociation_Axis_Gordon333.csv")
 print(perm.sphere.p(gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.Fvalue,sa_axis_gordon$SA.Axis.ranks, rotations, "spearman")) #test the spin test
 cor.test(gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.Fvalue,sa_axis_gordon$SA.Axis.ranks, method = "spearman")
+library(rcompanion)
+spearmanRho(x= gam.age.ses.clustco.gordon.fx.TRUE$GAM.age.ses.Fvalue, y = sa_axis_gordon$SA.Axis.ranks,ci = T)
 
 mydata <- data.frame(sa_axis_gordon,gam.age.ses.clustco.gordon.fx.TRUE)
 mydata$sig_or_not <- factor(ifelse(mydata$GAM.age.ses.pvalue.fdr<0.05, 1,1))
@@ -438,10 +497,12 @@ describe(y2_data_only$bayley_cog_comp_y2)
 lm_bayley_lang_clustco <- lm(avgclustco_both ~ child_sex + child_age_y2_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_lang_comp_y2, data=y2_data_only)
 summary(lm_bayley_lang_clustco)
 lm.beta(lm_bayley_lang_clustco)
+confint(lm_bayley_lang_clustco)
 visreg(lm_bayley_lang_clustco)
 #cognition
 lm_bayley_cog_clustco <- lm(avgclustco_both ~ child_sex + child_age_y2_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_cog_comp_y2, data=y2_data_only)
 summary(lm_bayley_cog_clustco)
+confint(lm_bayley_cog_clustco)
 lm.beta(lm_bayley_cog_clustco)
 visreg(lm_bayley_cog_clustco)
 
@@ -460,6 +521,7 @@ p.adjust(c(summary(lm_bayley_lang_clustco)$coefficients[7,4], summary(lm_bayley_
 #language
 lm_bayley_lang_clustco <- lm(bayley_lang_comp_y2 ~ child_sex + disadv_prenatal + avgclustco_both, data=y2_data_only)
 summary(lm_bayley_lang_clustco)
+confint(lm_bayley_lang_clustco)
 lm.beta(lm_bayley_lang_clustco)
 visreg(lm_bayley_lang_clustco) #clust co significant when including disadvantage in the model, disadvantage also sig
 
@@ -468,12 +530,14 @@ visreg(lm_bayley_lang_clustco) #clust co significant when including disadvantage
 lm_bayley_elang_clustco <- lm(avgclustco_both ~ child_sex + child_age_y2_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_elang_scale_y2, data=y2_data_only)
 lm.beta(lm_bayley_elang_clustco)
 summary(lm_bayley_elang_clustco)
+confint(lm_bayley_elang_clustco)
 visreg(lm_bayley_elang_clustco, "bayley_elang_scale_y2")
 visreg(lm_bayley_elang_clustco, "bayley_elang_scale_y2",xlim=c(1,13))
 
 ##when you control for SES, is this accounting for the effect or not?
 lm_bayley_elang_clustco <- lm(bayley_elang_scale_y2 ~ child_sex + avgclustco_both + disadv_prenatal, data=y2_data_only)
 summary(lm_bayley_elang_clustco)
+confint(lm_bayley_elang_clustco)
 lm.beta(lm_bayley_elang_clustco)
 visreg(lm_bayley_elang_clustco) #clust co no longer significant when including disadvantage in the model, disadvantage also marginal
 visreg(lm_bayley_elang_clustco, "avgclustco_both")
@@ -482,6 +546,7 @@ visreg(lm_bayley_elang_clustco, "avgclustco_both")
 lm_bayley_rlang_clustco <- lm(avgclustco_both ~ child_sex + child_age_y2_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_rlang_scale_y2, data=y2_data_only)
 lm.beta(lm_bayley_rlang_clustco)
 summary(lm_bayley_rlang_clustco)
+confint(lm_bayley_rlang_clustco)
 visreg(lm_bayley_rlang_clustco)
 a <- visreg(lm_bayley_rlang_clustco, "bayley_rlang_scale_y2");plot(a)
 plot(a, xlim=c(1,13))
@@ -490,6 +555,7 @@ p.adjust(c(summary(lm_bayley_rlang_clustco)$coefficients[7,4], summary(lm_bayley
 ##when you control for SES, is this accounting for the effect or not?
 lm_bayley_rlang_clustco <- lm(bayley_rlang_scale_y2 ~ child_sex + avgclustco_both + disadv_prenatal, data=y2_data_only)
 summary(lm_bayley_rlang_clustco)
+confint(lm_bayley_rlang_clustco)
 lm.beta(lm_bayley_rlang_clustco)
 visreg(lm_bayley_rlang_clustco, "avgclustco_both")
 
@@ -505,12 +571,14 @@ describe(y3_data_only$bayley_cog_scale_y3)
 #language
 lm_bayley_lang_clustco <- lm(avgclustco_both ~ child_sex + child_age_y3_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_lang_comp_y3, data=y3_data_only)
 summary(lm_bayley_lang_clustco)
+confint(lm_bayley_lang_clustco)
 lm.beta(lm_bayley_lang_clustco)
 visreg(lm_bayley_lang_clustco)
 
 #cognition
 lm_bayley_cog_clustco <- lm(avgclustco_both ~ child_sex + child_age_y3_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_cog_comp_y3, data=y3_data_only)
 summary(lm_bayley_cog_clustco)
+confint(lm_bayley_cog_clustco)
 lm.beta(lm_bayley_cog_clustco)
 visreg(lm_bayley_cog_clustco)
 p.adjust(c(summary(lm_bayley_lang_clustco)$coefficients[7,4], summary(lm_bayley_cog_clustco)$coefficients[7,4]))
@@ -525,6 +593,7 @@ p.adjust(c(summary(lm_bayley_lang_clustco)$coefficients[7,4], summary(lm_bayley_
 ##when you control for SES, is this accounting for the effect or not?
 lm_bayley_lang_clustco <- lm(bayley_lang_comp_y3 ~ child_sex + disadv_prenatal + avgclustco_both, data=y3_data_only)
 summary(lm_bayley_lang_clustco)
+confint(lm_bayley_lang_clustco)
 lm.beta(lm_bayley_lang_clustco)
 visreg(lm_bayley_lang_clustco) #clust co no longer significant when including disadvantage in the model, disadvantage also marginal
 
@@ -533,12 +602,14 @@ visreg(lm_bayley_lang_clustco) #clust co no longer significant when including di
 lm_bayley_elang_clustco <- lm(avgclustco_both ~ child_sex + child_age_y3_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_elang_scale_y3, data=y3_data_only)
 lm.beta(lm_bayley_elang_clustco)
 summary(lm_bayley_elang_clustco)
+confint(lm_bayley_elang_clustco)
 visreg(lm_bayley_elang_clustco, "bayley_elang_scale_y3")
 visreg(lm_bayley_elang_clustco, "bayley_elang_scale_y3",xlim=c(1,13))
 
 ##when you control for SES, is this accounting for the effect or not?
 lm_bayley_elang_clustco <- lm(bayley_elang_scale_y3 ~ child_sex + avgclustco_both + disadv_prenatal, data=y3_data_only)
 summary(lm_bayley_elang_clustco)
+confint(lm_bayley_elang_clustco)
 lm.beta(lm_bayley_elang_clustco)
 visreg(lm_bayley_elang_clustco) #clust co no longer significant when including disadvantage in the model, disadvantage also marginal
 visreg(lm_bayley_elang_clustco, "avgclustco_both")
@@ -546,6 +617,7 @@ visreg(lm_bayley_elang_clustco, "avgclustco_both")
 ## Receptive
 lm_bayley_rlang_clustco <- lm(avgclustco_both ~ child_sex + child_age_y3_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_rlang_scale_y3, data=y3_data_only)
 lm.beta(lm_bayley_rlang_clustco)
+confint(lm_bayley_rlang_clustco)
 summary(lm_bayley_rlang_clustco)
 visreg(lm_bayley_rlang_clustco)
 a <- visreg(lm_bayley_rlang_clustco, "bayley_rlang_scale_y3");plot(a)
@@ -555,6 +627,7 @@ p.adjust(c(summary(lm_bayley_rlang_clustco)$coefficients[7,4], summary(lm_bayley
 ##when you control for SES, is this accounting for the effect or not?
 lm_bayley_rlang_clustco <- lm(bayley_rlang_scale_y3 ~ child_sex + avgclustco_both + disadv_prenatal, data=y3_data_only)
 summary(lm_bayley_rlang_clustco)
+confint(lm_bayley_rlang_clustco)
 lm.beta(lm_bayley_rlang_clustco)
 visreg(lm_bayley_rlang_clustco, "avgclustco_both")
 
