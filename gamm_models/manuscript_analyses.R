@@ -192,6 +192,24 @@ amt_of_data %>% tbl_summary(statistic = list(
   all_continuous() ~ "{mean} ({min} - {max})",
   all_categorical() ~ "{n} / {N} ({p}%)"))
 
+# Save & load public dataset -----------------------------------------------------
+network_demo_data_public <- network_demo_data_long_clustco %>% select(-contains("system_conn")) %>% 
+  select(-c("MODID.x", "MODID.y", "child_birthweight", "GAWEEKS")) %>% filter(!is.na(child_age_mri))
+write.csv(network_demo_data_public, file = "~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/data/network_demo_data_public.csv")
+network_demo_data_long_clustco <- read.csv("~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/data/network_demo_data_public.csv")
+network_demo_data_long_clustco$child_sex <- as.factor(network_demo_data_long_clustco$child_sex)
+
+#Make Bayley data
+Bayley_scores <- demo_data %>% select(c("modid","child_birthweight","child_sex", "PMA_scan"),contains("age"), contains("disadv"),contains("income_needs_demo"), (contains("bayley_cog") | contains("bayley_mot")| contains("bayley_lang")) & contains("comp")) 
+Bayley_scores$exclusions <- rep(F,dim(Bayley_scores)[1])
+Bayley_long <- reshape(Bayley_scores, direction="long", varying =list(c("child_age_y1_assessment" ,"child_age_y2_assessment","child_age_y3_assessment"),c("bayley_cog_comp_y1" , "bayley_cog_comp_y2","bayley_cog_comp_y3"), 
+                                                                      c("bayley_lang_comp_y1","bayley_lang_comp_y2","bayley_lang_comp_y3")), v.names = c("child_age_assessment","bayley_cog_comp", "bayley_lang_comp"), 
+                       times=c("y1","y2","y3"), 
+                       idvar = "modid") %>% select(-c("child_birthweight")) %>% select(-(contains("income_needs")|contains("_mot_")|contains("child_age_y")))
+write.csv(Bayley_long, file = "~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/data/Bayley_data.csv")
+Bayley_long <- read.csv("~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/data/Bayley_data.csv")
+Bayley_long$child_sex <- as.factor(Bayley_long$child_sex)
+
 # Make Supplemental Table 1: Demographics  ----------------
 #filter original birth demo data by those in the network analyses
 birth_data <- left_join(y0_network_data, demo_data, by="modid")
@@ -379,6 +397,9 @@ y3_clustco_data$timepoint <- "y3"
 all_clustco_data <- rbind(y0_clustco_data, y2_clustco_data)
 all_clustco_data <- rbind(all_clustco_data, y3_clustco_data)
 network_demo_data_long_clustco <- left_join(network_demo_data_long,all_clustco_data, by=c("modid", "timepoint"))
+#load from public data
+network_demo_data_long_clustco <- read.csv("~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/data/network_demo_data_public.csv")
+network_demo_data_long_clustco$child_sex <- as.factor(network_demo_data_long_clustco$child_sex)
 
 # Fig 3a: Regional GAMMs for local segregation ----------------------------------------
 ## Using a modified version of Val's function ##
@@ -471,6 +492,10 @@ Bayley_scores <- demo_data %>% select(c("modid","child_birthweight","child_sex",
 Bayley_scores$exclusions <- rep(F,dim(Bayley_scores)[1])
 Bayley_long <- reshape(Bayley_scores, direction="long", varying =list(c("child_age_y1_assessment" ,"child_age_y2_assessment","child_age_y3_assessment"),c("bayley_cog_comp_y1" , "bayley_cog_comp_y2","bayley_cog_comp_y3"),c("bayley_mot_comp_y1","bayley_mot_comp_y2","bayley_mot_comp_y3"), c("bayley_lang_comp_y1","bayley_lang_comp_y2","bayley_lang_comp_y3")), v.names = c("child_age_assessment","bayley_cog_comp", "bayley_mot_comp","bayley_lang_comp"), times=c("y1","y2","y3"), idvar = "modid")
 
+#load public data
+Bayley_long <- read.csv("~/Box/projects/in_progress/Tooley2023_prenatal_env_cortical_network_dev/data/Bayley_data.csv")
+Bayley_long$child_sex <- as.factor(Bayley_long$child_sex)
+
 #Cognition
 gam_bayley_cog_comp_by <- gamm(bayley_cog_comp ~ child_sex + s(child_age_assessment, k = 4) + s(child_age_assessment, k =4, by= disadv_prenatal), random = list(modid =~ 1), data=Bayley_long, method = "REML")
 #ti() is singular
@@ -492,6 +517,8 @@ y2_data_only <- left_join(y2_data_only, demo_data, by = c("modid"))
 y2_data_only$part_coef_avg <- (y2_data_only$part_coef_neg+y2_data_only$part_coef_pos)/2
 y2_data_only <- y2_data_only %>% filter(., bayley_dataquality_y2 >=2)#filter out bayley exclusions
 describe(y2_data_only$bayley_cog_comp_y2)
+
+#load from public data
 
 #language
 lm_bayley_lang_clustco <- lm(avgclustco_both ~ child_sex + child_age_y2_mri_fun + avgweight + avg_FD_of_retained_frames + retained_frames+ bayley_lang_comp_y2, data=y2_data_only)
